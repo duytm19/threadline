@@ -1,0 +1,35 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gofmt
+    - misspell
+    - depguard
+
+linters-settings:
+  depguard:
+    rules:
+      domain_purity:
+        files:
+          - "**/internal/domain/**"
+        deny:
+          - pkg: "database/sql"
+            desc: "Domain layer must not import database/sql per AD-10"
+          - pkg: "github.com/jackc/pgx"
+            desc: "Domain layer must not import pgx database driver per AD-10"
+          - pkg: "net/http"
+            desc: "Domain layer must not import net/http per AD-10"
+          - pkg: "github.com/redis/go-redis"
+            desc: "Domain layer must not import redis driver per AD-10"
+          - pkg: "**/adapters/**"
+            desc: "Domain layer must not import adapters per AD-10"
+          - pkg: "**/ports/**"
+            desc: "Domain layer must not import ports per AD-10"
