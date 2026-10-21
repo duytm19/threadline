@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/threadline/pkg/tenant"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -14,30 +15,32 @@ type contextKey string
 
 const (
 	HeaderRequestID = "X-Request-ID"
-	HeaderTenantID  = "X-Tenant-ID"
+	HeaderTenantID  = tenant.HeaderTenantID
 
-	tenantContextKey  contextKey = "tenant_id"
 	requestContextKey contextKey = "request_id"
 )
 
-// WithTenant stores the tenant ID in context.
+// WithTenant stores the tenant ID in context as TenantContext.
 func WithTenant(ctx context.Context, tenantID string) context.Context {
-	return context.WithValue(ctx, tenantContextKey, tenantID)
+	tc, err := tenant.New(tenantID)
+	if err != nil {
+		return ctx
+	}
+	return tenant.WithContext(ctx, tc)
 }
 
 // TenantFromContext extracts the tenant ID from context.
 func TenantFromContext(ctx context.Context) (string, bool) {
-	val, ok := ctx.Value(tenantContextKey).(string)
-	return val, ok && val != ""
+	id, err := tenant.TenantIDFromContext(ctx)
+	if err != nil || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // MustTenantFromContext extracts tenant or panics if unset (used in tenant-bound usecases).
 func MustTenantFromContext(ctx context.Context) string {
-	val, ok := TenantFromContext(ctx)
-	if !ok {
-		panic("tenant_id missing from context")
-	}
-	return val
+	return tenant.MustTenantIDFromContext(ctx)
 }
 
 // RequestIDFromContext extracts request ID from context.
@@ -68,20 +71,27 @@ func MiddlewareRequestID(next http.Handler) http.Handler {
 	})
 }
 
-// MiddlewareTenantContext extracts and enforces X-Tenant-ID.
+// MiddlewareTenantContext extracts, validates, and enforces X-Tenant-ID.
 func MiddlewareTenantContext(required bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tenantID := r.Header.Get(HeaderTenantID)
-			if tenantID == "" && required {
-				WriteProblem(w, r, BadRequest("X-Tenant-ID header is required"))
+			if tenantID == "" {
+				if required {
+					WriteProblem(w, r, BadRequest("X-Tenant-ID header is required"))
+					return
+				}
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			ctx := r.Context()
-			if tenantID != "" {
-				ctx = WithTenant(ctx, tenantID)
+			tc, err := tenant.New(tenantID)
+			if err != nil {
+				WriteProblem(w, r, BadRequest(fmt.Sprintf("Invalid X-Tenant-ID: %v", err)))
+				return
 			}
+
+			ctx := tenant.WithContext(r.Context(), tc)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

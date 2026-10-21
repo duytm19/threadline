@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/threadline/pkg/tenant"
 )
 
 var (
@@ -88,4 +89,23 @@ func (m *TxManager) WithTenantTxOptions(ctx context.Context, tenantID string, op
 	}
 
 	return nil
+}
+
+// WithContextTx executes a transaction by automatically resolving TenantContext from ctx.
+// Fails closed if context lacks valid tenant information.
+func (m *TxManager) WithContextTx(ctx context.Context, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	tenantID, err := tenant.TenantIDFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("rls: %w", err)
+	}
+	return m.WithTenantTx(ctx, tenantID, fn)
+}
+
+// WithContextTxOptions executes a transaction with custom options by resolving TenantContext from ctx.
+func (m *TxManager) WithContextTxOptions(ctx context.Context, opts pgx.TxOptions, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	tenantID, err := tenant.TenantIDFromContext(ctx)
+	if err != nil {
+		return fmt.Errorf("rls: %w", err)
+	}
+	return m.WithTenantTxOptions(ctx, tenantID, opts, fn)
 }

@@ -31,6 +31,20 @@ func TestTxManager_FailClosedOnEmptyTenant(t *testing.T) {
 	if !errors.Is(err, rls.ErrMissingTenantID) {
 		t.Fatalf("expected ErrMissingTenantID, got %v", err)
 	}
+
+	err = manager.WithContextTx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing tenant context") {
+		t.Fatalf("expected missing tenant context error, got %v", err)
+	}
+
+	err = manager.WithContextTxOptions(context.Background(), pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing tenant context") {
+		t.Fatalf("expected missing tenant context error, got %v", err)
+	}
 }
 
 func TestRowLevelSecurity_BDDScenarios(t *testing.T) {
