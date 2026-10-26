@@ -13,7 +13,27 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/threadline/pkg/rls"
+	"github.com/threadline/pkg/tenant"
 )
+
+type mockTransactor struct {
+	beginTxFn func(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+	tx        *mockTx
+}
+
+func (m *mockTransactor) Begin(ctx context.Context) (pgx.Tx, error) {
+	return m.BeginTx(ctx, pgx.TxOptions{})
+}
+
+func (m *mockTransactor) BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error) {
+	if m.beginTxFn != nil {
+		return m.beginTxFn(ctx, opts)
+	}
+	if m.tx != nil {
+		return m.tx, nil
+	}
+	return &mockTx{}, nil
+}
 
 func TestTxManager_FailClosedOnEmptyTenant(t *testing.T) {
 	manager := rls.NewTxManager(nil)
@@ -44,6 +64,148 @@ func TestTxManager_FailClosedOnEmptyTenant(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "missing tenant context") {
 		t.Fatalf("expected missing tenant context error, got %v", err)
+	}
+}
+
+func TestTxManager_NilPool(t *testing.T) {
+	manager := rls.NewTxManager(nil)
+
+	err := manager.WithTx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		return nil
+	})
+	if !errors.Is(err, rls.ErrNilPool) {
+		t.Fatalf("expected ErrNilPool, got %v", err)
+	}
+}
+
+func TestTxManager_CommitSuccess(t *testing.T) {
+	tx := &mockTx{}
+	pool := &mockTransactor{tx: tx}
+	manager := rls.NewTxManager(pool)
+
+	businessExecuted := false
+	err := manager.WithTenantTx(context.Background(), "zalora-vn", func(ctx context.Context, tx pgx.Tx) error {
+		businessExecuted = true
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !businessExecuted {
+		t.Fatal("business logic was not executed")
+	}
+	if len(tx.executed) != 1 || tx.executed[0] != "SET LOCAL app.tenant_id = 'zalora-vn'" {
+		t.Fatalf("expected SET LOCAL app.tenant_id statement, got %v", tx.executed)
+	}
+	if !tx.committed {
+		t.Fatal("expected transaction to be committed")
+	}
+}
+
+func TestTxManager_RollbackOnUserError(t *testing.T) {
+	tx := &mockTx{}
+	pool := &mockTransactor{tx: tx}
+	manager := rls.NewTxManager(pool)
+
+	userErr := errors.New("business rule failure")
+	err := manager.WithTenantTx(context.Background(), "zalora-vn", func(ctx context.Context, tx pgx.Tx) error {
+		return userErr
+	})
+
+	if !errors.Is(err, userErr) {
+		t.Fatalf("expected userErr, got %v", err)
+	}
+	if tx.committed {
+		t.Fatal("transaction should not have committed on error")
+	}
+	if !tx.rolledBack {
+		t.Fatal("transaction should have been rolled back")
+	}
+}
+
+func TestTxManager_WithContextTx_Success(t *testing.T) {
+	tx := &mockTx{}
+	pool := &mockTransactor{tx: tx}
+	manager := rls.NewTxManager(pool)
+
+	ctx, err := tenant.WithTenantID(context.Background(), "iconic-au")
+	if err != nil {
+		t.Fatalf("failed to create tenant context: %v", err)
+	}
+
+	err = manager.WithContextTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tx.executed) != 1 || tx.executed[0] != "SET LOCAL app.tenant_id = 'iconic-au'" {
+		t.Fatalf("expected iconic-au SET LOCAL, got %v", tx.executed)
+	}
+	if !tx.committed {
+		t.Fatal("expected commit")
+	}
+}
+
+func TestTxManager_WithHooksAndMiddleware(t *testing.T) {
+	var trace []string
+
+	hook := rls.TxHookFunc(func(ctx context.Context, tx pgx.Tx) error {
+		trace = append(trace, "configured_hook")
+		return nil
+	})
+
+	middleware := func(next rls.TxFunc) rls.TxFunc {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			trace = append(trace, "manager_mw_start")
+			err := next(ctx, tx)
+			trace = append(trace, "manager_mw_end")
+			return err
+		}
+	}
+
+	tx := &mockTx{}
+	pool := &mockTransactor{tx: tx}
+	manager := rls.NewTxManager(pool, rls.WithHooks(hook), rls.WithMiddleware(middleware))
+
+	invocationMw := func(next rls.TxFunc) rls.TxFunc {
+		return func(ctx context.Context, tx pgx.Tx) error {
+			trace = append(trace, "invocation_mw_start")
+			err := next(ctx, tx)
+			trace = append(trace, "invocation_mw_end")
+			return err
+		}
+	}
+
+	err := manager.WithTx(context.Background(), func(ctx context.Context, tx pgx.Tx) error {
+		trace = append(trace, "core_logic")
+		return nil
+	}, invocationMw)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []string{
+		"configured_hook",
+		"manager_mw_start",
+		"invocation_mw_start",
+		"core_logic",
+		"invocation_mw_end",
+		"manager_mw_end",
+	}
+	if len(trace) != len(expected) {
+		t.Fatalf("expected trace %v, got %v", expected, trace)
+	}
+	for i := range expected {
+		if trace[i] != expected[i] {
+			t.Fatalf("at index %d: expected %s, got %s", i, expected[i], trace[i])
+		}
+	}
+	if !tx.committed {
+		t.Fatal("expected transaction commit")
 	}
 }
 

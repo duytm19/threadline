@@ -6,3 +6,6 @@ use (
 	./services/inventory
 	./services/order
 )
+
+replace github.com/threadline/pkg v0.0.0 => ./pkg
+
