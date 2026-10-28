@@ -29,12 +29,13 @@ lint:
 # Run unit and race-condition tests
 test:
 	@echo "Running unit tests with -race..."
-	go test -race -v ./pkg/...
+	go test -race -v ./pkg/... ./services/identity/...
 
 # Synchronize and tidy all go.mod files in workspace
 tidy:
 	@echo "Tidying all workspace modules..."
 	cd pkg && go mod tidy
+	cd services/identity && go mod tidy
 	cd services/inventory && go mod tidy
 	cd services/order && go mod tidy
 	cd services/gateway && go mod tidy

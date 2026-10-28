@@ -3,6 +3,7 @@ go 1.23.0
 use (
 	./pkg
 	./services/gateway
+	./services/identity
 	./services/inventory
 	./services/order
 )
