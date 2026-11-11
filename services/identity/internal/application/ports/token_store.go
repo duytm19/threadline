@@ -2,10 +2,39 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/threadline/services/identity/internal/domain/tokenfamily"
 )
+
+// ErrCrossTenantViolation indicates a storage-level cross-tenant isolation breach.
+var ErrCrossTenantViolation = errors.New("tokenstore: cross-tenant access violation detected")
+
+// TokenExchangeError enriches a token exchange rejection error with storage metadata
+// (such as FamilyID, UserID, ReplayedJTI, and AlertCode) for immutable security auditing.
+type TokenExchangeError struct {
+	Err         error
+	Status      string
+	FamilyID    string
+	TenantID    string
+	UserID      string
+	ReplayedJTI string
+	AlertCode   string
+}
+
+// Error returns the underlying error description.
+func (e *TokenExchangeError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return e.Status
+}
+
+// Unwrap exposes the wrapped sentinel error for errors.Is/errors.As matching.
+func (e *TokenExchangeError) Unwrap() error {
+	return e.Err
+}
 
 // ExchangeResult encapsulates the result of an atomic token exchange operation.
 type ExchangeResult struct {

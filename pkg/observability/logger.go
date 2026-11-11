@@ -48,6 +48,30 @@ func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	return h.Handler.Handle(ctx, r)
 }
 
+// TraceIDFromContext extracts the W3C OpenTelemetry trace ID from context if valid.
+func TraceIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	span := trace.SpanFromContext(ctx)
+	if span.SpanContext().IsValid() {
+		return span.SpanContext().TraceID().String()
+	}
+	return ""
+}
+
+// SpanIDFromContext extracts the OpenTelemetry span ID from context if valid.
+func SpanIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	span := trace.SpanFromContext(ctx)
+	if span.SpanContext().IsValid() {
+		return span.SpanContext().SpanID().String()
+	}
+	return ""
+}
+
 // NewJSONLogger initializes an enterprise-ready JSON structured logger.
 func NewJSONLogger(serviceName, env string, out io.Writer) *slog.Logger {
 	if out == nil {

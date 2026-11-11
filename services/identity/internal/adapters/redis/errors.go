@@ -4,12 +4,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/threadline/services/identity/internal/application/ports"
 	"github.com/threadline/services/identity/internal/domain/tokenfamily"
 )
 
 var (
 	// ErrCrossTenantViolation is returned when a cross-tenant data access violation is detected.
-	ErrCrossTenantViolation = errors.New("redis: cross-tenant access violation detected")
+	ErrCrossTenantViolation = ports.ErrCrossTenantViolation
 
 	// ErrFamilyAlreadyExists is returned when attempting to create a family that already exists.
 	ErrFamilyAlreadyExists = errors.New("redis: token family already exists")

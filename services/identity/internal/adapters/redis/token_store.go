@@ -148,7 +148,23 @@ func (s *TokenStore) ExchangeToken(
 
 	status := resMap["STATUS"]
 	if status != "SUCCESS" {
-		return nil, MapStatusToError(status)
+		mappedErr := MapStatusToError(status)
+		replayedJTI := resMap["REPLAYED_JTI"]
+		if replayedJTI == "" {
+			replayedJTI = resMap["JTI"]
+		}
+		if resMap["FAMILY_ID"] != "" || resMap["USER_ID"] != "" || resMap["ALERT_CODE"] != "" || replayedJTI != "" {
+			return nil, &ports.TokenExchangeError{
+				Err:         mappedErr,
+				Status:      status,
+				FamilyID:    resMap["FAMILY_ID"],
+				TenantID:    resMap["TENANT_ID"],
+				UserID:      resMap["USER_ID"],
+				ReplayedJTI: replayedJTI,
+				AlertCode:   resMap["ALERT_CODE"],
+			}
+		}
+		return nil, mappedErr
 	}
 
 	gen, _ := strconv.Atoi(resMap["GENERATION"])
