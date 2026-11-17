@@ -36,10 +36,12 @@ func MapStatusToError(status string) error {
 		return tokenfamily.ErrTokenExpired
 	case "TOKEN_REUSED":
 		return tokenfamily.ErrTokenReused
-	case "FAMILY_COMPROMISED":
+	case "FAMILY_COMPROMISED", "ALREADY_COMPROMISED":
 		return tokenfamily.ErrFamilyCompromised
 	case "FAMILY_REVOKED", "TOKEN_REVOKED":
 		return tokenfamily.ErrFamilyRevoked
+	case "TOKEN_ALREADY_EXISTS":
+		return tokenfamily.ErrTokenConflict
 	case "CROSS_TENANT_VIOLATION":
 		return ErrCrossTenantViolation
 	case "FAMILY_ALREADY_EXISTS":

@@ -53,6 +53,8 @@ redis.call('HSET', family_key,
 )
 redis.call('EXPIRE', family_key, ttl_seconds)
 
+local exp_unix = tonumber(ARGV[10]) or (now_unix + ttl_seconds)
+
 -- 2. Store initial Token as ACTIVE
 redis.call('HSET', token_key,
     'family_id', family_id,
@@ -64,7 +66,7 @@ redis.call('HSET', token_key,
     'used', '0',
     'issued_at', now_str,
     'expires_at', expires_at_str,
-    'expires_at_unix', tostring(now_unix + ttl_seconds)
+    'expires_at_unix', tostring(exp_unix)
 )
 redis.call('EXPIRE', token_key, ttl_seconds)
 

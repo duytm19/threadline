@@ -33,11 +33,9 @@ func InitTracer(ctx context.Context, serviceName, serviceVersion, env string) (f
 
 	// For local dev, stdout or no-op provider if collector endpoint not configured
 	// Production/staging binds OTLP gRPC exporter via OTLP_ENDPOINT env var
-	bsp := sdktrace.NewBatchSpanProcessor(sdktrace.NewNoopSpanProcessor().(sdktrace.SpanProcessor)) // fallback
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithResource(res),
-		sdktrace.WithSpanProcessor(bsp),
 	)
 
 	otel.SetTracerProvider(tp)

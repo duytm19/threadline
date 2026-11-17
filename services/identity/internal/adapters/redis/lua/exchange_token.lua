@@ -85,20 +85,9 @@ if fam_state == "REVOKED" then
     }
 end
 
--- 3. Check for Token Expiration
-if tok.expires_at_unix then
-    local exp_unix = tonumber(tok.expires_at_unix)
-    if exp_unix and now_unix > exp_unix then
-        return {
-            "STATUS", "TOKEN_EXPIRED",
-            "FAMILY_ID", family_id,
-            "JTI", tok.jti or ""
-        }
-    end
-end
-
--- 4. ACTIVE REUSE DETECTION (Breach detection)
+-- 3. ACTIVE REUSE DETECTION (Breach detection)
 -- If the presented token is already marked as USED, a replay attack is occurring.
+-- Invariant: Must be evaluated before expiration so replay of expired used tokens is captured.
 if tok.used == "1" or tok.used == "true" or tok.state == "USED" then
     -- Security Alert A07_TOKEN_REUSE: Active Replay Attack!
     -- Invariant: Revoke entire family, blacklist/revoke all active tokens
@@ -129,13 +118,32 @@ if tok.used == "1" or tok.used == "true" or tok.state == "USED" then
     }
 end
 
--- 5. Check if presented token is in REVOKED state
+-- 4. Check if presented token is in REVOKED state
 if tok.state == "REVOKED" then
     return {
         "STATUS", "TOKEN_REVOKED",
         "FAMILY_ID", family_id,
+        "TENANT_ID", tenant_id,
         "JTI", tok.jti or ""
     }
+end
+
+-- 5. Check for Token Expiration
+if tok.expires_at_unix then
+    local exp_unix = tonumber(tok.expires_at_unix)
+    if exp_unix and now_unix > exp_unix then
+        return {
+            "STATUS", "TOKEN_EXPIRED",
+            "FAMILY_ID", family_id,
+            "TENANT_ID", tenant_id,
+            "JTI", tok.jti or ""
+        }
+    end
+end
+
+-- 6. Check for token hash collision
+if redis.call('EXISTS', new_token_key) == 1 then
+    return { "STATUS", "TOKEN_ALREADY_EXISTS" }
 end
 
 -- 6. LEGITIMATE ROTATION
@@ -153,6 +161,8 @@ redis.call('HSET', presented_token_key,
 )
 redis.call('EXPIRE', presented_token_key, ttl_seconds)
 
+local new_exp_unix = tonumber(ARGV[8]) or (now_unix + ttl_seconds)
+
 -- Store new token as ACTIVE
 redis.call('HSET', new_token_key,
     'family_id', family_id,
@@ -164,7 +174,7 @@ redis.call('HSET', new_token_key,
     'used', '0',
     'issued_at', now_str,
     'expires_at', new_expires_at_str,
-    'expires_at_unix', tostring(now_unix + ttl_seconds)
+    'expires_at_unix', tostring(new_exp_unix)
 )
 redis.call('EXPIRE', new_token_key, ttl_seconds)
 

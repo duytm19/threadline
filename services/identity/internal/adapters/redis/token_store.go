@@ -58,6 +58,7 @@ func (s *TokenStore) CreateFamily(ctx context.Context, family *tokenfamily.Token
 	nowStr := now.Format(time.RFC3339)
 	nowUnix := strconv.FormatInt(now.Unix(), 10)
 	expiresAtStr := initialTok.ExpiresAt().Format(time.RFC3339)
+	expiresAtUnix := strconv.FormatInt(initialTok.ExpiresAt().Unix(), 10)
 	ttlSec := strconv.FormatInt(int64(ttl.Seconds()), 10)
 
 	args := []interface{}{
@@ -70,6 +71,7 @@ func (s *TokenStore) CreateFamily(ctx context.Context, family *tokenfamily.Token
 		nowUnix,
 		expiresAtStr,
 		ttlSec,
+		expiresAtUnix,
 	}
 
 	rawRes, err := createFamilyScript.Run(ctx, s.client, keys, args...).Result()
@@ -117,13 +119,14 @@ func (s *TokenStore) ExchangeToken(
 	}
 
 	// We pass KEYS[1]=presentedKey and KEYS[2]=newKey.
-	// KEYS[3] and KEYS[4] are left empty ("") to allow Lua script to dynamically derive them
-	// from the presented token's family_id while maintaining cluster hash tag compatibility.
-	keys := []string{presentedKey, newKey, "", ""}
+	// Both keys utilize the {tenantID} hash tag for cluster slot affinity.
+	// family_key and family_tokens_key are derived inside Lua preserving the same hash slot.
+	keys := []string{presentedKey, newKey}
 
 	nowStr := now.Format(time.RFC3339)
 	nowUnix := strconv.FormatInt(now.Unix(), 10)
 	newExpiresAtStr := newExpiresAt.Format(time.RFC3339)
+	newExpiresAtUnix := strconv.FormatInt(newExpiresAt.Unix(), 10)
 	ttlSec := strconv.FormatInt(int64(ttl.Seconds()), 10)
 
 	args := []interface{}{
@@ -134,6 +137,7 @@ func (s *TokenStore) ExchangeToken(
 		nowUnix,
 		newExpiresAtStr,
 		ttlSec,
+		newExpiresAtUnix,
 	}
 
 	rawRes, err := exchangeTokenScript.Run(ctx, s.client, keys, args...).Result()

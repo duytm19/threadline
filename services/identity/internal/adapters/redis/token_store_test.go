@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	adapter "github.com/threadline/services/identity/internal/adapters/redis"
 	"github.com/threadline/services/identity/internal/domain/tokenfamily"
@@ -93,6 +94,26 @@ func TestLuaScripts_EmbeddedAndValid(t *testing.T) {
 	if strings.TrimSpace(adapter.RevokeFamilyScriptSrc) == "" {
 		t.Fatal("RevokeFamilyScriptSrc is empty")
 	}
+
+	// Invariant: Reuse detection must appear before Expiration check in script source
+	reuseIdx := strings.Index(adapter.ExchangeTokenScriptSrc, "ACTIVE REUSE DETECTION")
+	expIdx := strings.Index(adapter.ExchangeTokenScriptSrc, "Check for Token Expiration")
+	if reuseIdx == -1 || expIdx == -1 {
+		t.Fatalf("expected both reuse detection and expiration check in exchange_token.lua (reuseIdx=%d, expIdx=%d)", reuseIdx, expIdx)
+	}
+	if reuseIdx > expIdx {
+		t.Fatal("security invariant violated: ACTIVE REUSE DETECTION must be evaluated before Check for Token Expiration")
+	}
+
+	// Invariant: Fail-closed tenant isolation check in script
+	if !strings.Contains(adapter.ExchangeTokenScriptSrc, "CROSS_TENANT_VIOLATION") {
+		t.Fatal("ExchangeTokenScriptSrc does not enforce CROSS_TENANT_VIOLATION")
+	}
+
+	// Invariant: Atomic generation increment in script
+	if !strings.Contains(adapter.ExchangeTokenScriptSrc, "next_gen = current_gen + 1") {
+		t.Fatal("ExchangeTokenScriptSrc does not increment generation counter")
+	}
 }
 
 func TestParseLuaResult(t *testing.T) {
@@ -136,10 +157,12 @@ func TestMapStatusToError(t *testing.T) {
 		{"TOKEN_EXPIRED", tokenfamily.ErrTokenExpired},
 		{"TOKEN_REUSED", tokenfamily.ErrTokenReused},
 		{"FAMILY_COMPROMISED", tokenfamily.ErrFamilyCompromised},
+		{"ALREADY_COMPROMISED", tokenfamily.ErrFamilyCompromised},
 		{"FAMILY_REVOKED", tokenfamily.ErrFamilyRevoked},
 		{"TOKEN_REVOKED", tokenfamily.ErrFamilyRevoked},
 		{"CROSS_TENANT_VIOLATION", adapter.ErrCrossTenantViolation},
 		{"FAMILY_ALREADY_EXISTS", adapter.ErrFamilyAlreadyExists},
+		{"TOKEN_ALREADY_EXISTS", tokenfamily.ErrTokenConflict},
 		{"FAMILY_NOT_FOUND", adapter.ErrFamilyNotFound},
 		{"CORRUPTED_TOKEN_DATA", adapter.ErrCorruptedTokenData},
 	}
@@ -158,4 +181,47 @@ func TestMapStatusToError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExchangeToken_FailClosedValidation(t *testing.T) {
+	store := adapter.NewTokenStore(nil)
+
+	t.Run("empty tenant_id returns ErrEmptyTenantID before Redis execution", func(t *testing.T) {
+		_, err := store.ExchangeToken(nil, "", "presented", "new", "jti-1", time.Now().Add(time.Hour), time.Now(), time.Hour)
+		if !errors.Is(err, adapter.ErrEmptyTenantID) {
+			t.Fatalf("expected ErrEmptyTenantID, got: %v", err)
+		}
+	})
+
+	t.Run("empty presentedTokenHash returns ErrEmptyTokenHash", func(t *testing.T) {
+		_, err := store.ExchangeToken(nil, "tenant-1", "", "new", "jti-1", time.Now().Add(time.Hour), time.Now(), time.Hour)
+		if !errors.Is(err, adapter.ErrEmptyTokenHash) {
+			t.Fatalf("expected ErrEmptyTokenHash, got: %v", err)
+		}
+	})
+
+	t.Run("empty newTokenHash returns ErrEmptyTokenHash", func(t *testing.T) {
+		_, err := store.ExchangeToken(nil, "tenant-1", "presented", "", "jti-1", time.Now().Add(time.Hour), time.Now(), time.Hour)
+		if !errors.Is(err, adapter.ErrEmptyTokenHash) {
+			t.Fatalf("expected ErrEmptyTokenHash, got: %v", err)
+		}
+	})
+
+	t.Run("empty newJTI returns ErrEmptyJTI", func(t *testing.T) {
+		_, err := store.ExchangeToken(nil, "tenant-1", "presented", "new", "", time.Now().Add(time.Hour), time.Now(), time.Hour)
+		if !errors.Is(err, tokenfamily.ErrEmptyJTI) {
+			t.Fatalf("expected ErrEmptyJTI, got: %v", err)
+		}
+	})
+}
+
+func TestCreateFamily_FailClosedValidation(t *testing.T) {
+	store := adapter.NewTokenStore(nil)
+
+	t.Run("nil family returns ErrEmptyFamilyID", func(t *testing.T) {
+		err := store.CreateFamily(nil, nil, time.Hour)
+		if !errors.Is(err, tokenfamily.ErrEmptyFamilyID) {
+			t.Fatalf("expected ErrEmptyFamilyID, got: %v", err)
+		}
+	})
 }

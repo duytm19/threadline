@@ -172,7 +172,7 @@ A story is marked `DONE` only when:
 
 - **Sub-tasks Breakdown:**
   - [x] `[Domain]` Design `TokenFamily` entity and state transitions (`Active`, `Rotated`, `Compromised`).
-  - [ ] `[Adapters/Redis]` Implement atomic Lua script for token exchange and reuse detection.
+  - [x] `[Adapters/Redis]` Implement atomic Lua script for token exchange and reuse detection.
   - [ ] `[Application]` Implement `RefreshTokenUseCase` with audit logging of client IP, User-Agent, and geographic hash.
   - [ ] `[Ports/HTTP]` Expose `POST /v1/auth/refresh` with `SameSite=Strict; HttpOnly; Secure` cookie handling.
   - [ ] `[Testing]` Unit test domain logic and Testcontainers Redis integration test simulating concurrent replay attacks.
