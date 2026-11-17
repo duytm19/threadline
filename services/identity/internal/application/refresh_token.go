@@ -81,6 +81,13 @@ type RefreshTokenResult struct {
 // RefreshOption configures optional dependencies and policies for RefreshTokenUseCase.
 type RefreshOption func(*RefreshTokenUseCase)
 
+// WithAuditLogger overrides or injects the AuditLogger port.
+func WithAuditLogger(logger ports.AuditLogger) RefreshOption {
+	return func(uc *RefreshTokenUseCase) {
+		uc.auditLogger = logger
+	}
+}
+
 // WithClock overrides the clock used for timestamps and expirations.
 func WithClock(clock ports.Clock) RefreshOption {
 	return func(uc *RefreshTokenUseCase) {
@@ -228,6 +235,12 @@ func (uc *RefreshTokenUseCase) Execute(ctx context.Context, cmd RefreshTokenComm
 	userAgent := SanitizeUserAgent(cmd.UserAgent)
 	geoHash := uc.resolveGeoHash(ctx, clientIP, cmd.GeoHash, cmd.GeoHint)
 	traceID := observability.TraceIDFromContext(ctx)
+	requestID := strings.TrimSpace(cmd.RequestID)
+	if requestID == "" {
+		if v, ok := ctx.Value("request_id").(string); ok {
+			requestID = strings.TrimSpace(v)
+		}
+	}
 
 	baseEvent := ports.AuditEvent{
 		EventID:    newAuditEventID(),
@@ -235,7 +248,7 @@ func (uc *RefreshTokenUseCase) Execute(ctx context.Context, cmd RefreshTokenComm
 		UserAgent:  userAgent,
 		GeoHash:    geoHash,
 		TraceID:    traceID,
-		RequestID:  cmd.RequestID,
+		RequestID:  requestID,
 		OccurredAt: now,
 	}
 
@@ -521,10 +534,21 @@ func (uc *RefreshTokenUseCase) auditExchangeError(ctx context.Context, base port
 
 	var exErr *ports.TokenExchangeError
 	if errors.As(err, &exErr) {
-		ev.FamilyID = exErr.FamilyID
-		ev.UserID = exErr.UserID
-		ev.OldTokenJTI = exErr.ReplayedJTI
-		ev.AlertCode = exErr.AlertCode
+		if exErr.FamilyID != "" {
+			ev.FamilyID = exErr.FamilyID
+		}
+		if exErr.UserID != "" {
+			ev.UserID = exErr.UserID
+		}
+		if exErr.ReplayedJTI != "" {
+			ev.OldTokenJTI = exErr.ReplayedJTI
+		}
+		if exErr.AlertCode != "" {
+			ev.AlertCode = exErr.AlertCode
+		}
+		if exErr.TenantID != "" && ev.TenantID == "" {
+			ev.TenantID = exErr.TenantID
+		}
 	}
 
 	msg := "refresh token exchange rejected"

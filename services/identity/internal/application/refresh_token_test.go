@@ -1044,4 +1044,54 @@ func TestRefreshTokenUseCase_OptionsAndExplicitGeoHash(t *testing.T) {
 			t.Errorf("expected fallback Status string, got %q", fallbackErr.Error())
 		}
 	})
+
+	t.Run("WithAuditLogger option and context request_id fallback", func(t *testing.T) {
+		store := &mockTokenStore{
+			exchangeRes: &ports.ExchangeResult{
+				FamilyID:    "fam-audit-opt",
+				TenantID:    "zalora-vn",
+				UserID:      "usr-audit",
+				OldTokenJTI: "jti-1",
+				NewTokenJTI: "jti-2",
+				Generation:  1,
+				RotatedAt:   now,
+			},
+		}
+		issuer := &mockAccessTokenIssuer{
+			result: ports.AccessTokenResult{Token: "jwt-audit"},
+		}
+		audit := &mockAuditLogger{}
+
+		uc, err := application.NewRefreshTokenUseCase(
+			store,
+			issuer,
+			nil, // initially nil
+			application.WithClock(fixedClock{now: now}),
+			application.WithAuditLogger(audit), // injected via option
+		)
+		if err != nil {
+			t.Fatalf("unexpected constructor error: %v", err)
+		}
+
+		ctx, err := tenant.WithTenantID(context.Background(), "zalora-vn")
+		if err != nil {
+			t.Fatalf("failed to build tenant context: %v", err)
+		}
+		ctx = context.WithValue(ctx, "request_id", "req-from-context-999")
+
+		_, err = uc.Execute(ctx, application.RefreshTokenCommand{
+			RefreshToken: "rt-context-req",
+			ClientIP:     "10.0.0.1",
+		})
+		if err != nil {
+			t.Fatalf("unexpected execute error: %v", err)
+		}
+
+		if len(audit.events) != 1 {
+			t.Fatalf("expected 1 audit event from WithAuditLogger, got %d", len(audit.events))
+		}
+		if audit.events[0].RequestID != "req-from-context-999" {
+			t.Errorf("expected RequestID 'req-from-context-999', got %q", audit.events[0].RequestID)
+		}
+	})
 }
