@@ -206,7 +206,7 @@ A story is marked `DONE` only when:
     - *Then* API returns `404 Not Found`.
 
 - **Sub-tasks Breakdown:**
-  - [ ] `[Domain]` Model `Product`, `ProductVariant` (SKU), and `Category` aggregates with domain invariants.
+  - [x] `[Domain]` Model `Product`, `ProductVariant` (SKU), and `Category` aggregates with domain invariants.
   - [ ] `[Adapters/DB]` Author PostgreSQL migrations for `products`, `product_variants`, `categories` with GIN indexes on JSONB attributes.
   - [ ] `[Adapters/DB]` Implement `sqlc` queries utilizing keyset pagination `(created_at, id)` composite indexing.
   - [ ] `[Application]` Implement `ListProductsUseCase` with cursor encoding/decoding (`base64`).
