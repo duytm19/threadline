@@ -694,3 +694,116 @@ func TestReconstituteTokenFamily(t *testing.T) {
 		t.Errorf("expected 0 events on reconstitution, got %d", len(family.Events()))
 	}
 }
+
+func TestDomainEvents_Metadata(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+
+	createdEv := tokenfamily.TokenFamilyCreatedEvent{FamilyID: "F-1", CreatedAt: now}
+	if createdEv.EventName() != "identity.token_family.created" {
+		t.Errorf("unexpected event name: %s", createdEv.EventName())
+	}
+	if !createdEv.OccurredAt().Equal(now) {
+		t.Errorf("unexpected occurred at: %v", createdEv.OccurredAt())
+	}
+
+	rotatedEv := tokenfamily.TokenFamilyRotatedEvent{FamilyID: "F-1", RotatedAt: now}
+	if rotatedEv.EventName() != "identity.token_family.rotated" {
+		t.Errorf("unexpected event name: %s", rotatedEv.EventName())
+	}
+	if !rotatedEv.OccurredAt().Equal(now) {
+		t.Errorf("unexpected occurred at: %v", rotatedEv.OccurredAt())
+	}
+
+	compEv := tokenfamily.TokenFamilyCompromisedEvent{FamilyID: "F-1", CompromisedAt: now}
+	if compEv.EventName() != "identity.token_family.compromised" {
+		t.Errorf("unexpected event name: %s", compEv.EventName())
+	}
+	if !compEv.OccurredAt().Equal(now) {
+		t.Errorf("unexpected occurred at: %v", compEv.OccurredAt())
+	}
+
+	revEv := tokenfamily.TokenFamilyRevokedEvent{FamilyID: "F-1", RevokedAt: now}
+	if revEv.EventName() != "identity.token_family.revoked" {
+		t.Errorf("unexpected event name: %s", revEv.EventName())
+	}
+	if !revEv.OccurredAt().Equal(now) {
+		t.Errorf("unexpected occurred at: %v", revEv.OccurredAt())
+	}
+}
+
+func TestTokenState_StringAndPredicates(t *testing.T) {
+	validStates := []tokenfamily.TokenState{
+		tokenfamily.TokenStateActive,
+		tokenfamily.TokenStateUsed,
+		tokenfamily.TokenStateRevoked,
+	}
+	for _, s := range validStates {
+		if !s.IsValid() {
+			t.Errorf("expected valid state for %q", s)
+		}
+		if s.String() != string(s) {
+			t.Errorf("unexpected string: %s", s.String())
+		}
+	}
+
+	invalidState := tokenfamily.TokenState("UNKNOWN_STATE")
+	if invalidState.IsValid() {
+		t.Error("expected invalid state for UNKNOWN_STATE")
+	}
+
+	now := time.Now()
+	tokActive := tokenfamily.ReconstituteRefreshToken("jti-act", "h-act", tokenfamily.TokenStateActive, now, now.Add(time.Hour), nil)
+	if !tokActive.IsActive() || tokActive.IsUsed() {
+		t.Errorf("unexpected active token predicate result")
+	}
+
+	tokUsed := tokenfamily.ReconstituteRefreshToken("jti-used", "h-used", tokenfamily.TokenStateUsed, now, now.Add(time.Hour), &now)
+	if tokUsed.IsActive() || !tokUsed.IsUsed() {
+		t.Errorf("unexpected used token predicate result")
+	}
+}
+
+func TestTokenFamily_LookupAndReconstitutionValidation(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	family, err := tokenfamily.NewTokenFamily("F-lookup", "tenant-1", "user-1", "hash-0", "jti-0", now.Add(time.Hour), now)
+	if err != nil {
+		t.Fatalf("failed to create family: %v", err)
+	}
+
+	// TokenByJTI
+	tok, found := family.TokenByJTI("jti-0")
+	if !found || tok.JTI() != "jti-0" {
+		t.Errorf("expected to find token by JTI 'jti-0'")
+	}
+	_, found = family.TokenByJTI("jti-nonexistent")
+	if found {
+		t.Errorf("expected not to find nonexistent JTI")
+	}
+
+	// TokenByHash nonexistent
+	_, found = family.TokenByHash("nonexistent-hash")
+	if found {
+		t.Errorf("expected not to find nonexistent hash")
+	}
+
+	// CompromisedAt on uncompromised family
+	if _, comp := family.CompromisedAt(); comp {
+		t.Errorf("expected uncompromised family CompromisedAt to be false")
+	}
+
+	// Reconstitute validation errors
+	_, err = tokenfamily.ReconstituteTokenFamily("", "tenant-1", "user-1", tokenfamily.StateActive, 0, "jti", "hash", family.Tokens(), nil, "", now, now)
+	if !errors.Is(err, tokenfamily.ErrEmptyFamilyID) {
+		t.Errorf("expected ErrEmptyFamilyID, got %v", err)
+	}
+
+	_, err = tokenfamily.ReconstituteTokenFamily("F-1", "", "user-1", tokenfamily.StateActive, 0, "jti", "hash", family.Tokens(), nil, "", now, now)
+	if !errors.Is(err, tokenfamily.ErrEmptyTenantID) {
+		t.Errorf("expected ErrEmptyTenantID, got %v", err)
+	}
+
+	_, err = tokenfamily.ReconstituteTokenFamily("F-1", "tenant-1", "", tokenfamily.StateActive, 0, "jti", "hash", family.Tokens(), nil, "", now, now)
+	if !errors.Is(err, tokenfamily.ErrEmptyUserID) {
+		t.Errorf("expected ErrEmptyUserID, got %v", err)
+	}
+}
